@@ -40,8 +40,6 @@ use v5.22.1;
 
 use IO::Socket;
 use Module::Load;
-use Data::Dumper;
-use IO::Handle;
 use Getopt::Long;
 use Pod::Usage;
 
@@ -107,7 +105,6 @@ sub con_and_command {
 
     $| =1;
 
-    print $string."\r\n";
 	my $socket = IO::Socket::INET->new(Proto    => "tcp",
 	                                   PeerAddr => $address,
 	                                  )
@@ -128,6 +125,7 @@ sub con_and_command {
 
 		#print $socket "quit\n\r";	
 	}
+    print "\n    Exiting\n";
     shutdown($socket, 2);
 	close($socket);
 }
@@ -174,7 +172,7 @@ sub get_config {
 
 
 sub trim {
-    my @out = @_;
+    my @out = grep { defined($_) } @_;
     for(@out) {
         s/^\s+//;
         s/\s+$//;
@@ -214,5 +212,3 @@ Prints the manual page and exits.
 B<This program> will read the given input file(s) and do something
 useful with the contents thereof.
 =cut
-
-
