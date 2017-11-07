@@ -69,19 +69,31 @@ Begin lines by '#' to make comments
 ```
 $ cp GDC.config.sample GDC.config
 $ vim GDC.config
-# Imagine a Gitorious project named test/test.git, just record the conf
-# with test
-[test/mybranch]
-	# If the project has to be loaded onto multiple servers
-	address = 192.168.0.1:32337;127.0.0.1:32337;192.168.0.6:8888
+# This file define which git deployer server to contact for given project
+# Here some specification about the config format: 
+#   * The repository matching is [project pattern/banch pattern]
+#   * The pattern use full length PCRE.
+#   * If the branch is not specified, all branches are accepted
+#   * The matching is done from bottom to up
+#   * You can use "ignore" to specify a project or branch to be ignored
+#   * You can specify several servers, separated by ';'
+#   * Each address should be at the following format: ipv4:port
+#   * If you dont specify the port, the default one will be used
 
-[test/master]
-	address = my.testprod.com:32337
+[.*]
+    # This disable any project by default (except if defined further in this file) 
+    ignore = 1
 
+[test]
+    # Match any branch of the project 'test'
+    # Note that if no port is specified, 32337 will be used by default
+    address = 127.0.0.1;
 
-[toto/master]
-	address = 192.168.10.25:32337
+[test2/mybranch]
+        # You can specify several servers to deploy on this way:
+        address = 192.168.0.1:32337;127.0.0.1:32337;192.168.0.6:8888
 
-[end]
-```
+[test2/master]
+        # Here the master branch of the project has to be updated on one server
+        address = my.testprod.com:32337
 

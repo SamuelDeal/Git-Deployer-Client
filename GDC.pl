@@ -36,24 +36,50 @@
 
 use strict;
 use warnings;
+use v5.22.1;
+
 use IO::Socket;
-use Config::Auto;
+use Module::Load;
 use Data::Dumper;
 use IO::Handle;
+use Getopt::Long;
+use Pod::Usage;
 
-$| =1;
+use constant DEFAULT_PORT => 32337;
+use constant DEFAULT_SERVER => 'localhost';
 
-{
-	my $config = Config::Auto::parse();
-	#print Dumper($config);
 
-	die("Please, provide the project name and the branch as argument\n") 
-		if ( (not defined($ARGV[1]) or not defined $ENV{SSH_ORIGINAL_COMMAND}) 
-			and not defined($ARGV[0]) );
+my $config_module = 0;
+eval {
+    load Config::Auto;
+    $config_module = 1;
+    1;
+} 
+or do {
+    print "WARNING: no config module installed\n";
+};
+
+
+sub main {
+    my $help = 0;
+    my $man = 0;
+    GetOptions(
+        'm|man!'          => \$help,
+        'h|?|help!'       => \$man,
+    ) or do {
+        return pod2usage(-verbose => 1, -exitval => 1)
+    };
+    return pod2usage(-verbose => 1, -exitval => 0) if $help;
+    return pod2usage(-verbose => 2, -exitval => 0) if $man;
+
+    if((not defined($ARGV[1]) or not defined $ENV{SSH_ORIGINAL_COMMAND}) and not defined($ARGV[0])) {
+        die("Please, provide the project name and the branch as argument\n");
+    }
 
 	my $project_name = "";
 	my $project = "";
 	$project_name = $ARGV[1] if defined $ARGV[1];
+    
 	$project_name = "$1.git" if defined($ENV{SSH_ORIGINAL_COMMAND}) and $ENV{SSH_ORIGINAL_COMMAND} =~ /git-receive-pack '(.*)'/;
 	$project_name = $1 if defined($ENV{SSH_ORIGINAL_COMMAND}) and $ENV{SSH_ORIGINAL_COMMAND} =~ /'(.*\.git)/;
 	$project = $1 if $project_name =~ /.*\/(.*)\.git/;
@@ -62,55 +88,131 @@ $| =1;
 
 	$branch = $1 if $branch =~ /\/(\w+)$/;
 
-	print "Project : $project/$branch not configured\n" if not defined($config->{"$project/$branch"});
-	die "Project : $project/$branch not configured\n" if not defined($config->{"$project/$branch"});
-
-	my @addresses 	= split(";", trim($config->{"$project/$branch"}->{address}));
-
-	con_and_command($_, "Project: $project_name Branch: $branch") foreach (@addresses);
-
+    run($project_name, $branch);
 }
 
+
+sub run {
+    my ($project, $branch) = @_;
+
+    my @addresses   = get_config($project, $branch);
+    foreach my $address (@addresses) {
+        con_and_command($address, "Project: $project Branch: $branch");
+    }
+}
 
 
 sub con_and_command {
 	my ($address, $string) = @_;
 
-	
+    $| =1;
 
+    print $string."\r\n";
 	my $socket = IO::Socket::INET->new(Proto    => "tcp",
 	                                   PeerAddr => $address,
 	                                  )
 	or die "Connexion to $address failed : $@\n";
 	
-	#print "*** Debut de connexion ***\n";
-
-	while(my $reponse=<$socket>){
-        if(substr($reponse, 0, 1) ne "\b") {
+	while(my $response=<$socket>){
+        if(substr($response, 0, 1) ne "\b") {
             print "\n";
         }
-        print substr($reponse, 0, -1);
+        print substr($response, 0, -1);
         STDOUT->flush();
 		
-		if($reponse =~ /please make your request/){
+		if($response =~ /please make your request/){
+            STDOUT->flush();
 			print $socket $string."\r\n";
+            $socket->flush();
 		}
 
 		#print $socket "quit\n\r";	
 	}
-	#print "*** Fin de connexion ***\n";
+    shutdown($socket, 2);
 	close($socket);
 }
 
-sub trim
-{
+
+
+sub get_config {
+    my ($project, $branch) = @_;
+
+    my $config = undef;
+    if($config_module) {
+        eval {
+            my $conf_parser = Config::Auto->new(format => 'ini');
+            $config = $conf_parser->parse();
+            1;
+        }
+        or die "invalid configuration: ".$@;
+    }
+
+    $project =~ s/\.git$//;
+
+    if(defined($config)) {
+        foreach my $pattern (reverse(keys(%{$config}))) {
+            my ($project_pattern, $branch_pattern) = trim(split(/\//, $pattern));
+            $branch_pattern = ".*" unless defined $branch_pattern;
+            $project_pattern = '^'.$project_pattern.'$';
+            $branch_pattern = '^'.$branch_pattern.'$';
+
+            next unless $project =~ $project_pattern;
+            next unless $branch =~ $branch_pattern;
+
+            return () if exists($config->{$pattern}->{"ignore"});
+
+            my @addresses = trim(split(/;/, $config->{$pattern}->{"address"}));
+            return map { $_ =~ /:/ ? $_ : $_.":".DEFAULT_PORT } @addresses;
+        }
+        print "Warning: $project/$branch not configured\n";
+        return (DEFAULT_SERVER.':'.DEFAULT_PORT);
+    }
+    else {
+        return (DEFAULT_SERVER.':'.DEFAULT_PORT);
+    }
+}
+
+
+sub trim {
     my @out = @_;
-    for (@out)
-    {
+    for(@out) {
         s/^\s+//;
         s/\s+$//;
     }
     return wantarray ? @out : $out[0];
 }
+
+main();
+
 __END__
+
+
+=head1 NAME
+
+GDC.pl - Git Deployer Client
+
+=head1 SYNOPSIS
+
+GDC.pl PROJECT BRANCH
+ Options:
+   --help, -h           brief help message
+   --man, -m            full documentation
+
+   PROJECT              the git repository name
+   BRANCH               the branch updated
+
+=head1 OPTIONS
+=over 8
+=item B<--help>
+Print a brief help message and exits.
+
+=item B<-man>
+Prints the manual page and exits.
+
+=back
+=head1 DESCRIPTION
+B<This program> will read the given input file(s) and do something
+useful with the contents thereof.
+=cut
+
 
