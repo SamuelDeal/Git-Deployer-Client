@@ -6,7 +6,11 @@ REPO_NAME=$(basename "$REPO_PATH")
 
 while read oldrev newrev ref; do
     BRANCH=$(basename "$ref")
-    "$BASE_DIR/GDC.pl" "$BRANCH" "$REPO_NAME" | tee /tmp/sam.log
+    if echo "$newrev" | egrep -q '^0+$'; then
+        echo "Branch deletion asked, no deployment"
+    else
+        "$BASE_DIR/GDC.pl" "$BRANCH" "$REPO_NAME" 
+    fi
 done
 
 exec git update-server-info
